@@ -1,11 +1,14 @@
+import argparse
 import shutil
 import os
 import csv
 
-from uuid import uuid4
-from time import time
 from datetime import date
+from fastkml import KML, Placemark
+from fastkml.utils import find_all
 from pathlib import Path
+from time import time
+from uuid import uuid4
 
 OUTPUT_PATH = "out"
 UUID = str(uuid4()).upper()
@@ -119,12 +122,27 @@ def _create_cot(cot: COT):
         _indent_write(f, '</detail>')
         _indent_write(f, '</event>')
 
+# Below is an example of creating a package from the KML file
+def _export_kml():
+    cots = _convert_kml('example.kml')
+    create_package("Test_KML", cots)
 
-# Below is an example of creating a package from the shelters data in Poland
-# https://strazpozarna.maps.arcgis.com/home/item.html?id=11f24814a7044207af61f61f65382aaf
-def _export_shelters():
-    cots = _read_shelters('schrony-csv.csv')
-    create_package("Schrony", cots)
+def _convert_kml(kml_path: str) -> list[COT]:
+    k = KML.parse(kml_path)
+
+    waypoints = []
+    for p in list(find_all(k, of_type=Placemark)):
+        coords = p.geometry.coords[0]
+        waypoints.append(
+            COT(
+                callsign=p.name if p.name else "Unnamed Waypoint",
+                lon=coords[0],
+                lat=coords[1],
+                remarks=p.description if p.description else ""
+            )
+        )
+
+    return waypoints
 
 
 def _read_shelters(csv_path: str) -> list[COT]:
@@ -143,3 +161,41 @@ def _read_shelters(csv_path: str) -> list[COT]:
                     COT(callsign="Schron", lon=row["x"], lat=row["y"], remarks=row["Adres"]))
 
     return shelters
+
+def main():
+    parser = argparse.ArgumentParser()
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "--schrony",
+        type=str,
+        help="Path of CSV file with Schrony data to convert",
+    )
+    group.add_argument(
+        "--kml",
+        type=str,
+        help="Path of KML file to convert",
+    )
+
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=str,
+        required=True,
+        help="Output file name",
+    )
+    args = parser.parse_args()
+
+    cots = []
+    if args.kml:
+        cots = _convert_kml(args.kml)
+    elif args.schrony:
+        cots = _read_shelters('schrony-csv.csv')
+
+    if not cots:
+        return
+
+    create_package(args.output, cots)
+
+
+if __name__ == "__main__":
+    main()
